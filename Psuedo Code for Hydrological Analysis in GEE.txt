@@ -1,0 +1,194 @@
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 1: Adding Boundary and visualizing it. (Pseudo Code)
+
+START
+    1. Load the shapefile for the study area (AOI).
+    2. Style the boundary of the AOI with a red outline and no fill (transparent).
+    3. Add the styled AOI to the map to visualize the boundary.
+END
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 2: Adding Digital Elevation Model and visualizing it
+
+START
+    1. Load the Digital Elevation Model (DEM) from the source.
+    2. Clip the DEM to the study area (AOI).
+    3. Classify the DEM into five categories based on elevation values:
+        - Elevation < 1000
+        - Elevation between 1000 and 2000
+        - Elevation between 2001 and 3000
+        - Elevation between 3001 and 4000
+        - Elevation > 4000
+    4. Assign colors to each classification:
+        - Blue for < 1000
+        - Light green for 1001-2000
+        - Dark green for 2001-3000
+        - Yellow for 3001-4000
+        - Red for > 4000
+    5. Visualize the classified DEM on the map with appropriate colors.
+END
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 3: Filling sinks of DEM and visualizing it.
+START
+    1. Fill the sinks (depressions) in the DEM to remove any pits (pit removal).
+    2. Visualize both the original DEM and the filled DEM on the map.
+    3. Use a color palette for visualizing the elevation in both DEMs.
+END
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 4: Flow Direction and Flow Accumulation Section
+START
+    1. Load the precomputed flow direction and flow accumulation datasets.
+    2. Clip the flow direction and flow accumulation datasets to the study area (AOI).
+    3. Visualize the flow direction on the map using a color gradient (1 to 8 values).
+    4. Visualize the flow accumulation on the map using a color gradient (0 to 10000 values).
+END
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 5: Finding out Streams from Flow Accumulation
+START
+    1. Set a threshold value for the flow accumulation to define streams (e.g., greater than 100).
+    2. Implement the Strahler stream order algorithm:
+        - Initialize stream order for each pixel based on the flow accumulation threshold.
+        - Use focal maximum in a 3x3 neighborhood to propagate stream order.
+        - Repeat the process for a set number of iterations (e.g., 10).
+    3. Calculate and visualize the Strahler stream order on the map with different colors.
+END
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 6: Adding Watersheds of study area.
+
+START
+    1. Load the HydroBASINS dataset (precomputed basins) for watershed information.
+    2. Clip the basins to the study area (AOI).
+    3. Extract and display the basin attributes (`HYBAS_ID` and `ORDER`).
+    4. Visualize the basins (watersheds) on the map with a green color.
+    5. Add basin outlines with black borders and transparent fill.
+END
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 7: Morphometric Analysis
+
+START
+    1. Calculate the terrain properties: slope, aspect, and hillshade using the DEM.
+    2. Visualize the slope, aspect, and hillshade layers on the map using appropriate color gradients:
+        - Slope: 0 to 60 degrees
+        - Aspect: 0 to 360 degrees
+        - Hillshade: 0 to 255 values (black to white)
+END
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 8: Morphometric Ranking
+
+START
+    1. Normalize the slope and aspect values:
+        - Normalize slope to a 0-1 scale (0-60 degrees).
+        - Normalize aspect to a 0-1 scale (0-360 degrees).
+    2. Combine the normalized slope and aspect to create a morphometric ranking.
+    3. Scale the morphometric ranking to 7 classes (1-7) and round the values.
+    4. Visualize the morphometric ranking on the map using a color palette.
+END
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 9: Zonal Statistics for Morphometric Ranking (Mean) by Basins
+START
+    1. Calculate zonal statistics (mean) for the morphometric ranking for each basin using `reduceRegions`.
+    2. Use the clipped basins as the regions and the mean reducer to calculate the mean ranking.
+    3. Print the result to the console to check the mean morphometric ranking for each basin.
+END
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 10: Assign the mean morphometric ranking values to corresponding Basins
+
+START
+    1. For each basin in the clipped basins, extract its `HYBAS_ID`.
+    2. Find the corresponding mean morphometric ranking from the zonal statistics for that basin.
+    3. Assign the mean morphometric ranking value to each basin by adding it as a new attribute (`mean_morphometric_ranking`).
+    4. Print the updated basins with the added mean ranking values.
+END
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 11: Classifying Basins into 7 Classes Using SVM based on Morphometric Mean Values
+
+START
+    1. Prepare training data by assigning class labels based on the mean morphometric ranking:
+        - Class 1: Rank 1-1.5
+        - Class 2: Rank 1.5-2
+        - Class 3: Rank 2-2.5
+        - Class 4: Rank 2.5-3
+        - Class 5: Rank 3-3.5
+        - Class 6: Rank 3.5-4
+        - Class 7: Rank > 4
+    2. Create a feature collection with the mean morphometric ranking and class labels.
+    3. Train an SVM classifier using the prepared training data.
+    4. Apply the trained classifier to classify the basins into 7 classes.
+    5. Visualize the classified basins on the map.
+END
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+// Section 12: Export Section
+
+START
+    1. Export the DEM, filled DEM, flow direction, flow accumulation, streams, ranked morphometric data, and classified basins to Google Drive.
+    2. Use appropriate formats for each export (e.g., GeoTIFF for raster images, Shapefile for vector data).
+    3. Ensure the export settings are defined correctly (scale, region of interest, file format).
+END
+

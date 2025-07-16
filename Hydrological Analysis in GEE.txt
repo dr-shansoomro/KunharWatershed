@@ -1,0 +1,451 @@
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 1: Adding Boundary and visualizing it.
+
+
+// Add Shapefile from your assets throught this line of code
+var aoi = ee.FeatureCollection("projects/ee-behzadsk/assets/Balakot");
+
+
+
+// Visualizing boundary of the polygon as outlines.
+var aoiStyle = aoi.style({
+  color: 'FF0000',  // Boundary color (red)
+  fillColor: '00000000',  // Transparent fill color (hollow body)
+  width: 2  // Boundary line width
+});
+
+// Visualizing boundary of the polygon as outlines.
+Map.addLayer(aoiStyle, {}, 'Study Area');
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 2: Adding Digital Elevation Model and visualizing it
+
+
+var dem = ee.Image('USGS/SRTMGL1_003');
+var dem = dem.clip(aoi)
+var classifiedDEM = dem.lt(1000).multiply(1)  // < 1000
+  .add(dem.gte(1000).and(dem.lte(2000)).multiply(2))  // 1001-2000
+  .add(dem.gte(2001).and(dem.lte(3000)).multiply(3))  // 2001-3000
+  .add(dem.gte(3001).and(dem.lte(4000)).multiply(4))  // 3001-4000
+  .add(dem.gt(4000).multiply(5));  // > 4000
+
+// Define color palette for each class (light purple, dim green, dark green, yellow, and red)
+var colorPalette = [
+  'blue',  // <1000
+  'lightgreen',     // 1001-2000
+  'darkgreen',    // 2001-3000
+  'yellow',       // 3001-4000
+  'red'           // >4000
+];
+
+// Map each class to a color
+var visParams = {
+  min: 1,  // Minimum class value (1 corresponds to <1000)
+  max: 5,  // Maximum class value (5 corresponds to >4000)
+  palette: colorPalette
+};
+
+// Visualize the classified DEM on the map
+Map.addLayer(classifiedDEM, visParams, 'Classified DEM');
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 3: Filling sinks of DEM and visualizing it.
+
+
+
+
+// Fill sinks in the DEM to remove depressions (pit removal)
+var filledDEM = ee.Terrain.fillMinima(dem);  // 3-pixel window for smoothing, adjust size if needed
+
+// Visualize the original and filled DEM for comparison
+Map.addLayer(dem, {min: 0, max: 5000, palette: ['blue', 'green', 'yellow', 'red']}, 'Original DEM');
+Map.addLayer(filledDEM, {min: 0, max: 5000, palette: ['blue', 'green', 'yellow', 'red']}, 'Filled DEM');
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 4: Flow Direction and Flow Accumulation Section
+
+// Load precomputed flow direction and flow accumulation datasets from HydroSHEDS
+var flowDirection = ee.Image("WWF/HydroSHEDS/15DIR")
+var flowAccumulation = ee.Image("WWF/HydroSHEDS/15ACC");
+
+// Clip the datasets to the area of interest (AOI)
+flowDirection = flowDirection.clip(aoi);
+flowAccumulation = flowAccumulation.clip(aoi);
+
+// Visualize flow direction, and flow accumulation
+
+// Visualize flow direction (Flow direction values between 1 to 8 indicate the direction of flow)
+Map.addLayer(flowDirection, {
+  min: 1,
+  max: 8,
+  palette: ['blue', 'cyan', 'green', 'yellow', 'orange', 'red', 'purple', 'pink']
+}, 'Flow Direction');
+
+// Visualize flow accumulation (number of cells draining into each pixel)
+Map.addLayer(flowAccumulation, {
+  min: 0,
+  max: 10000,
+  palette: ['white', 'blue', 'green', 'yellow', 'red']
+}, 'Flow Accumulation');
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 5: Finding out Streams from Flow Accumulation
+
+// Set an accumulation threshold for stream network (higher threshold, smaller streams)
+var streamThreshold = flowAccumulation.gt(100); // Adjust the value as needed
+
+// Compute Strahler Stream Order
+// Strahler stream order function
+var strahlerStreamOrder = function(flowDirection, flowAccumulation, threshold) {
+  var order = flowAccumulation.mask(threshold).multiply(0);  // Initialize the order
+
+  var previousOrder = order;
+  var iterations = 10;  // Maximum number of iterations to allow for stream order assignment
+  
+  for (var i = 1; i <= iterations; i++) {
+    var downstreamOrder = previousOrder
+      .focal_max(1, 'square', 'pixels') // Use max in a 3x3 neighborhood for propagation
+      .where(previousOrder.eq(0), 1);  // Assign 1 to new streams
+    
+    var updatedOrder = downstreamOrder.add(previousOrder); // Add orders together
+    
+    previousOrder = updatedOrder; // Update the order for next iteration
+  }
+  
+  return previousOrder;
+};
+
+// Calculate Stream Order
+var streamOrder = strahlerStreamOrder(flowDirection, flowAccumulation, streamThreshold);
+
+// Visualize the Stream Order
+Map.addLayer(streamOrder, {
+  min: 1,
+  max: 5,
+  palette: ['blue', 'green', 'yellow', 'orange', 'red']
+}, 'Strahler Streams');
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 6: Adding Watersheds of study area.
+
+
+/// Load the HydroBASINS dataset (Precomputed basins from HydroSHEDS)
+var basins = ee.FeatureCollection("WWF/HydroSHEDS/v1/Basins/hybas_10");
+
+
+// Clip the basins by your study area (AOI)
+var clippedBasins = basins.filterBounds(aoi);
+
+// Extract the "HYBAS_ID" and "ORDER" fields from the clipped basins
+var basinWithOrder = clippedBasins.select(['HYBAS_ID', 'ORDER']);
+
+// Print the basin attributes (HYBAS_ID and ORDER) to the console
+print('Basin attributes (HYBAS_ID and ORDER):', basinWithOrder);
+
+
+// Visualize the basins
+Map.addLayer(clippedBasins, {color: 'green'}, 'Watersheds');
+
+
+// Extract the "ORDER" field from the HydroBASINS dataset and display it in a table
+var basinWithOrder = clippedBasins.select(['HYBAS_ID', 'ORDER']);
+
+// Display the basin attributes (HYBAS_ID and ORDER)
+print('Basin attributes (HYBAS_ID and ORDER):', basinWithOrder);
+
+
+var basinoutline = basinWithOrder.style({
+  color: '000000',  // Boundary color (red)
+  fillColor: '00000000',  // Transparent fill color (hollow body)
+  width: 2  // Boundary line width
+});
+
+Map.addLayer(basinoutline, {}, 'Watersheds Outlines');
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 7: Morphometric Analysis
+
+// Calculate slope, aspect, and hillshade using ee.Terrain.products()
+var terrain = ee.Terrain.products(dem);
+
+// Extract individual bands (slope, aspect, and hillshade)
+var slope = terrain.select('slope');
+var aspect = terrain.select('aspect');
+var hillshade = terrain.select('hillshade');
+
+// Add slope, aspect, and hillshade layers to the map
+Map.addLayer(slope, {min: 0, max: 60, palette: ['blue', 'green', 'yellow', 'red']}, 'Slope');
+Map.addLayer(aspect, {min: 0, max: 360, palette: ['blue', 'green', 'yellow', 'red']}, 'Aspect');
+Map.addLayer(hillshade, {min: 0, max: 255, palette: ['black', 'white']}, 'Hillshade');
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 8: Morphometric Ranking
+// Normalize the slope (0-60 degrees) and aspect (0-360 degrees) for ranking
+var normalizedSlope = slope.divide(60);  // Normalizing slope to a 0-1 scale
+var normalizedAspect = aspect.divide(360);  // Normalizing aspect to a 0-1 scale
+
+// Combine normalized slope and aspect to create a morphometric ranking
+var morphometricRanking = normalizedSlope.add(normalizedAspect.multiply(0.5));  // Adjust weighting as needed
+
+// Rank based on values (1 to 7 classes)
+var ranked = morphometricRanking
+  .multiply(7)  // Scale to the 1-7 range
+  .clip(aoi)  // Clip to the study area boundary (if needed)
+  .round();  // Round to the nearest integer to assign class values from 1 to 7
+
+// Visualization parameters for the morphometric ranking
+var morphometricVis = {
+  min: 1,
+  max: 7,
+  palette: ['blue', 'green', 'yellow', 'orange', 'red', 'purple', 'pink']  // Color palette for 7 classes
+};
+
+// Visualize the morphometric ranking on the map
+Map.addLayer(ranked, morphometricVis, 'Morphometric Ranking (1-7)');
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 9: Zonal Statistics for Morphometric Ranking (Mean) by Basins
+
+// Calculate zonal statistics (mean) for morphometric ranking
+var zonalStats = ranked.reduceRegions({
+  collection: clippedBasins,  // FeatureCollection (basins)
+  reducer: ee.Reducer.mean(),  // Use the mean reducer
+  scale: 30,  // Resolution of the DEM (adjust as needed)
+  tileScale: 4  // Tile scale (optional, adjust for performance)
+});
+
+// Print the result to the console to view the mean morphometric ranking for each basin
+print('Zonal statistics (mean) of Morphometric Ranking for each HYBAS_ID:', zonalStats);
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 10: Assign the mean morphometric ranking values to corresponding Basins
+
+// Add the mean morphometric ranking values to each basin by HYBAS_ID
+var merged = clippedBasins.map(function(basin) {
+  var basinID = basin.get('HYBAS_ID');  // Get the HYBAS_ID of the current basin
+  var meanRanking = zonalStats.filter(ee.Filter.eq('HYBAS_ID', basinID));  // Find the matching entry in zonalStats
+  
+  // If a match exists, add the mean ranking value to the basin feature
+  var meanValue = ee.Number(meanRanking.first().get('mean'));  // Extract the mean value
+  return basin.set('mean_morphometric_ranking', meanValue);  // Add the mean value to the basin
+});
+
+// Print the updated basins with the added mean morphometric ranking
+print('Updated Basins with Mean Morphometric Ranking:', merged);
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+// Section 11: Classifying Basins into 7 Classes Using SVM based on Morphometric Mean Values
+
+// Step 1: Prepare the Training Data
+// Define some example training data with class labels (for demonstration purposes)
+// You will need to define these classes manually or use an external source to assign labels to basins
+var trainingData = merged.map(function(basin) {
+  var meanRanking = ee.Number(basin.get('mean_morphometric_ranking')); // Ensure meanRanking is a number
+
+  // Classify the basins based on the mean morphometric ranking
+  var classLabel = ee.Algorithms.If(meanRanking.lt(1), 1,  // Class 1: Rank 1-1.5
+                    ee.Algorithms.If(meanRanking.lt(2), 2,  // Class 2: Rank 1.5-2
+                    ee.Algorithms.If(meanRanking.lt(3), 3,  // Class 3: Rank 2-2.5
+                    ee.Algorithms.If(meanRanking.lt(4), 4,  // Class 4: Rank 2.5-3
+                    ee.Algorithms.If(meanRanking.lt(5), 5,  // Class 5: Rank 3-3.5
+                    ee.Algorithms.If(meanRanking.lt(6), 6,  // Class 6: Rank 3.5-4
+                    7)))))); // Class 7: Rank > 4
+
+  return basin.set('class', classLabel);  // Assign the class label to the basin
+});
+
+// Print the training data to the console to check the class labels
+print('Training Data with Class Labels:', trainingData);
+
+// Step 2: Prepare the feature collection for classification
+// Extract the training features (mean morphometric ranking) and class labels
+var trainingFeatures = trainingData.select(['mean_morphometric_ranking', 'class']);
+
+// Step 3: Train the SVM classifier
+var classifier = ee.Classifier.libsvm('Voting', 'C_SVC', 'RBF', true, null, 1, null, 1, null, null, null);
+
+// Train the SVM classifier using the training features and class labels
+var trainedClassifier = classifier.train({
+  features: trainingFeatures,
+  classProperty: 'class',
+  inputProperties: ['mean_morphometric_ranking']
+});
+
+// Step 4: Apply the trained classifier to classify the entire study area
+var classifiedBasins = merged.classify(trainedClassifier);
+
+// Step 5: Visualize the classified basins
+Map.addLayer(classifiedBasins, {
+  min: 1,
+  max: 7,
+  palette: ['blue', 'green', 'yellow', 'orange', 'red', 'purple', 'pink']
+}, 'Classified Basins (SVM)');
+
+
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+// Section 12: Export Section
+
+
+Export.image.toDrive({
+  image: dem,  // DEM
+  description: 'dem_raster',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+
+
+// Export Filled DEM (Digital Elevation Model) as Raster (GeoTIFF) //
+
+Export.image.toDrive({
+  image: filledDEM,  // The filled DEM (after sink filling)
+  description: 'filled_dem_raster',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+
+// Export Flow Direction as Raster (GeoTIFF) //
+
+Export.image.toDrive({
+  image: flowDirection,  // The flow accumulation raster
+  description: 'flow_direction_raster',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+
+// Export Flow Accumulation as Raster (GeoTIFF) //
+
+Export.image.toDrive({
+  image: flowAccumulation,  // The flow accumulation raster
+  description: 'flow_accumulation_raster',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+// Export Streams as Raster (GeoTIFF) //
+
+Export.image.toDrive({
+  image: streamOrder,  // The flow accumulation raster
+  description: 'streams_raster',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+
+// Export the clipped basins as Shapefile
+Export.table.toDrive({
+  collection: basinWithOrder,  // The clipped FeatureCollection (vector data)
+  description: 'hydrobasins_shapefile',  // Export name
+  fileFormat: 'SHP'  // Export format as Shapefile
+});
+
+
+Export.image.toDrive({
+  image: ranked,  // The filled DEM (after sink filling)
+  description: 'Marphometric_ranking',  // Export name
+  scale: 30,  // Resolution of the exported image (adjust as needed)
+  region: aoi,  // Define the region of interest (AOI)
+  fileFormat: 'GeoTIFF',  // Export format
+  maxPixels: 1e13  // Maximum pixels to export (adjust based on your data size)
+});
+
+
+// export the updated basins with the new attribute
+Export.table.toDrive({
+  collection: merged,  // The basins with the added mean morphometric ranking
+  description: 'updated_basins_with_mean_ranking',  // Export name
+  fileFormat: 'SHP'  // Export format as Shapefile (or CSV if needed)
+});
+
+
+//Export the classified basins
+Export.table.toDrive({
+  collection: classifiedBasins,  // Export the classified basins
+  description: 'classified_basins_svm',  // Export name
+  fileFormat: 'SHP'  // Export format as Shapefile
+});
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////
